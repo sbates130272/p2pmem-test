@@ -56,7 +56,7 @@ else
 fi
 
 test "$VN" = "$VC" || {
-	echo "  VER   $VN"
+	echo "  VER    $VN"
 	echo "#define VERSION \"$VN\"" >$GVF
 	echo "VERSION=$MVN" >$MVF
 	echo "FULL_VERSION=$VN" >>$MVF
