@@ -18,8 +18,10 @@ OBJDIR=build
 
 DESTDIR ?=
 
+LIBARGCONFIGDIR=libargconfig
+
 CPPFLAGS=-Iinc -Ibuild
-CFLAGS=-g -O2 -fPIC -Wall -Werror
+CFLAGS=-g -O2 -fPIC -Wall -Werror -I$(LIBARGCONFIGDIR)/inc
 DEPFLAGS= -MT $@ -MMD -MP -MF $(OBJDIR)/$*.d
 
 EXE=p2pmem-test
@@ -28,6 +30,7 @@ OBJS=$(addprefix $(OBJDIR)/, $(patsubst %.c,%.o, $(SRCS)))
 
 ifneq ($(V), 1)
 Q=@
+MAKEFLAGS+=--no-print-directory
 else
 NQ=:
 endif
@@ -35,7 +38,9 @@ endif
 compile: $(EXE)
 
 clean:
+	@$(NQ) echo "  CLEAN  $(EXE)"
 	$(Q)rm -rf $(EXE) build *~ ./src/*~
+	$(Q)$(MAKE) -C $(LIBARGCONFIGDIR) clean
 
 $(OBJDIR)/version.h $(OBJDIR)/version.mk: FORCE $(OBJDIR)
 	@$(SHELL_PATH) ./VERSION-GEN
@@ -46,11 +51,15 @@ $(OBJDIR):
 	$(Q)mkdir -p $(OBJDIR)/src
 
 $(OBJDIR)/%.o: %.c | $(OBJDIR)
-	@$(NQ) echo "  CC    $<"
+	@$(NQ) echo "  CC     $<"
 	$(Q)$(COMPILE.c) $(DEPFLAGS) $< -o $@
 
-$(EXE): $(OBJS)
-	@$(NQ) echo "  LD    $@"
+$(LIBARGCONFIGDIR)/libargconfig.a:
+	@$(NQ) echo "  MAKE   $@"
+	$(Q)$(MAKE) -C $(LIBARGCONFIGDIR)
+
+$(EXE): $(OBJS) $(LIBARGCONFIGDIR)/libargconfig.a
+	@$(NQ) echo "  LD     $@"
 	$(Q)$(LINK.o) $^ $(LDLIBS) -o $@
 
 .PHONY: clean compile FORCE
