@@ -1,0 +1,3 @@
+[submodule "libargconfig"]
+	path = libargconfig
+	url = https://github.com/sbates130272/libargconfig.git
