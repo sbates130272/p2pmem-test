@@ -13,11 +13,7 @@
  *
  */
 
-#include "plugin.h"
-#include "argconfig.h"
 #include "version.h"
-#include "suffix.h"
-#include "progress.h"
 
 int main(int argc, char **argv)
 {

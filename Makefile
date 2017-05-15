@@ -19,12 +19,12 @@ OBJDIR=build
 DESTDIR ?=
 
 CPPFLAGS=-Iinc -Ibuild
-CFLAGS=-g -O2 -fPIC -Wall
+CFLAGS=-g -O2 -fPIC -Wall -Werror
 DEPFLAGS= -MT $@ -MMD -MP -MF $(OBJDIR)/$*.d
 
 EXE=p2pmem-test
 SRCS=$(wildcard src/*.c)
-OBJS=$(addprefix $(OBJDIR)/, $(patsubst %.c,%.o, $(LIB_SRCS)))
+OBJS=$(addprefix $(OBJDIR)/, $(patsubst %.c,%.o, $(SRCS)))
 
 ifneq ($(V), 1)
 Q=@
@@ -32,32 +32,27 @@ else
 NQ=:
 endif
 
-ifeq ($(W), 1)
-CFLAGS += -Werror
-endif
+compile: $(EXE)
+
+clean:
+	$(Q)rm -rf $(EXE) build *~ ./src/*~
 
 $(OBJDIR)/version.h $(OBJDIR)/version.mk: FORCE $(OBJDIR)
 	@$(SHELL_PATH) ./VERSION-GEN
-$(OBJDIR)/cli/main.o: $(OBJDIR)/version.h
+$(OBJDIR)/src/main.o: $(OBJDIR)/version.h
 -include $(OBJDIR)/version.mk
 
 $(OBJDIR):
-	$(Q)mkdir -p $(OBJDIR)/cli $(OBJDIR)/lib
+	$(Q)mkdir -p $(OBJDIR)/src
 
 $(OBJDIR)/%.o: %.c | $(OBJDIR)
 	@$(NQ) echo "  CC    $<"
 	$(Q)$(COMPILE.c) $(DEPFLAGS) $< -o $@
 
-$(EXE): $(OBJS) libargconfig.a
+$(EXE): $(OBJS)
 	@$(NQ) echo "  LD    $@"
 	$(Q)$(LINK.o) $^ $(LDLIBS) -o $@
 
-.PHONY: clean compile
-.PHONY: FORCE
+.PHONY: clean compile FORCE
 
--include $(patsubst %.o,%.d,$(LIB_OBJS))
-
-CFLAGS += -g -std=gnu99
-
-clean:
-	rm -rf src/*.o *.a
+-include $(patsubst %.o,%.d,$(OBJS))
