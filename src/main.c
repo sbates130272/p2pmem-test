@@ -13,6 +13,11 @@
  *
  */
 
+#include <errno.h>
+#include <stdio.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
 #include <argconfig/argconfig.h>
 
 #include "version.h"
@@ -27,14 +32,17 @@ static struct {
 	int p2pmem_fd;
 	const char *p2pmem_filename;
 	size_t size;
-	size_t chunk;
+	size_t chunks;
 } cfg = {
-	.size  = 1048576,
-	.chunk = 1024,
+	.size   = 4096,
+	.chunks = 1024,
 };
 
 int main(int argc, char **argv)
 {
+	void *p2pmem;
+	ssize_t count;
+
 	const struct argconfig_options opts[] = {
 		{"nvme-read", .cfg_type=CFG_FD_RD,
 		 .value_addr=&cfg.nvme_read_fd,
@@ -52,13 +60,34 @@ int main(int argc, char **argv)
 		 .force_default="/dev/p2pmem0",
 		 .help="p2pmem device to use as buffer"},
 		{"size", 's', "", CFG_SIZE, &cfg.size, required_argument,
-		 "total size of data transfer"},
-		{"chunk", 'c', "", CFG_SIZE, &cfg.chunk, required_argument,
-		 "size of each single transfer (note OS might not honor this)"},
+		 "size of data transfer"},
+		{"chunks", 'c', "", CFG_SIZE, &cfg.chunks, required_argument,
+		 "number of chunks to transfer"},
 		{NULL}
 	};
 
 	argconfig_parse(argc, argv, desc, opts, &cfg, sizeof(cfg));
+
+	p2pmem = mmap(NULL, cfg.size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
+		      cfg.p2pmem_fd, 0);
+
+	if (p2pmem == NULL)
+		perror("mmap");
+
+	for (size_t i=0; i<cfg.chunks; i++) {
+
+		count = read(cfg.nvme_read_fd, p2pmem, cfg.size);
+
+		if (count == -1)
+			perror("read");
+
+		count = write(cfg.nvme_write_fd, p2pmem, cfg.size);
+
+		if (count == -1)
+			perror("write");
+	}
+
+	munmap(p2pmem, cfg.size);
 
 	return 0;
 }
