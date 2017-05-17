@@ -54,9 +54,9 @@ int main(int argc, char **argv)
 		 .argument_type=required_positional,
 		 .force_default="/dev/nvme1n1",
 		 .help="NVMe device to write"},
-		{"p2pmem", .cfg_type=CFG_FD_WR,
+		{"p2pmem", .cfg_type=CFG_FD_A,
 		 .value_addr=&cfg.p2pmem_fd,
-		 .argument_type=optional_positional,
+		 .argument_type=required_positional,
 		 .force_default="/dev/p2pmem0",
 		 .help="p2pmem device to use as buffer"},
 		{"size", 's', "", CFG_SIZE, &cfg.size, required_argument,
@@ -68,10 +68,10 @@ int main(int argc, char **argv)
 
 	argconfig_parse(argc, argv, desc, opts, &cfg, sizeof(cfg));
 
-	p2pmem = mmap(NULL, cfg.size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
+	p2pmem = mmap(NULL, cfg.size, PROT_READ | PROT_WRITE, MAP_SHARED,
 		      cfg.p2pmem_fd, 0);
 
-	if (p2pmem == NULL)
+	if (p2pmem == MAP_FAILED)
 		perror("mmap");
 
 	for (size_t i=0; i<cfg.chunks; i++) {
