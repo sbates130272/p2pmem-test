@@ -30,7 +30,7 @@ OBJS=$(addprefix $(OBJDIR)/, $(patsubst %.c,%.o, $(SRCS)))
 
 ifneq ($(V), 1)
 Q=@
-MAKEFLAGS+=--no-print-directory
+MAKEFLAGS+=-s --no-print-directory
 else
 NQ=:
 endif
@@ -54,7 +54,7 @@ $(OBJDIR)/%.o: %.c | $(OBJDIR)
 	@$(NQ) echo "  CC     $<"
 	$(Q)$(COMPILE.c) $(DEPFLAGS) $< -o $@
 
-$(LIBARGCONFIGDIR)/libargconfig.a:
+$(LIBARGCONFIGDIR)/libargconfig.a: FORCE
 	@$(NQ) echo "  MAKE   $@"
 	$(Q)$(MAKE) -C $(LIBARGCONFIGDIR)
 
