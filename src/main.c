@@ -44,12 +44,12 @@ int main(int argc, char **argv)
 	ssize_t count;
 
 	const struct argconfig_options opts[] = {
-		{"nvme-read", .cfg_type=CFG_FD_RDD,
+		{"nvme-read", .cfg_type=CFG_FD_RD_DIRECT,
 		 .value_addr=&cfg.nvme_read_fd,
 		 .argument_type=required_positional,
 		 .force_default="/dev/nvme0n1",
 		 .help="NVMe device to read"},
-		{"nvme-write", .cfg_type=CFG_FD_WRD,
+		{"nvme-write", .cfg_type=CFG_FD_WR_DIRECT,
 		 .value_addr=&cfg.nvme_write_fd,
 		 .argument_type=required_positional,
 		 .force_default="/dev/nvme1n1",
