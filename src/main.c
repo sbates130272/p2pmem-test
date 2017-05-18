@@ -79,6 +79,7 @@ int main(int argc, char **argv)
 		cfg.p2pmem_filename);
 	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %zd.\n",
 		cfg.size, cfg.chunks, cfg.size*cfg.chunks);
+	fprintf(stdout,"\tp2pmem = %p\n", p2pmem);
 
 	for (size_t i=0; i<cfg.chunks; i++) {
 
