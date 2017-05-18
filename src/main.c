@@ -77,6 +77,8 @@ int main(int argc, char **argv)
 	fprintf(stdout,"Running p2pmem-test: Reading %s : Writing %s : "
 		"p2pmem Buffer %s.\n",cfg.nvme_read_filename, cfg.nvme_write_filename,
 		cfg.p2pmem_filename);
+	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %zd.\n",
+		cfg.size, cfg.chunks, cfg.size*cfg.chunks);
 
 	for (size_t i=0; i<cfg.chunks; i++) {
 
