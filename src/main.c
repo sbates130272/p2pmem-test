@@ -74,6 +74,10 @@ int main(int argc, char **argv)
 	if (p2pmem == MAP_FAILED)
 		perror("mmap");
 
+	fprintf(stdout,"Running p2pmem-test: Reading %s : Writing %s : "
+		"p2pmem Buffer %s.\n",cfg.nvme_read_filename, cfg.nvme_write_filename,
+		cfg.p2pmem_filename);
+
 	for (size_t i=0; i<cfg.chunks; i++) {
 
 		count = read(cfg.nvme_read_fd, p2pmem, cfg.size);
