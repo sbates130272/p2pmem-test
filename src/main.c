@@ -38,17 +38,18 @@ static struct {
 	int p2pmem_fd;
 	const char *p2pmem_filename;
 	unsigned check;
+	size_t   chunk_size;
 	size_t   chunks;
 	long     page_size;
 	int      seed;
-	size_t   chunk_size;
+	size_t   size;
 	int      write_parity;
 	int      read_parity;
 } cfg = {
 	.check      = 0,
+	.chunk_size = 4096,
 	.chunks     = 1024,
 	.seed       = -1,
-	.chunk_size = 4096,
 };
 
 static int writedata()
@@ -57,15 +58,15 @@ static int writedata()
 	ssize_t count;
 	int ret = 0;
 
-	if (posix_memalign((void **)&buffer, cfg.page_size, cfg.chunk_size*cfg.chunks))
+	if (posix_memalign((void **)&buffer, cfg.page_size, cfg.size))
 		return -1;
 
 	cfg.write_parity = 0;
-	for (size_t i=0; i<(cfg.chunk_size*cfg.chunks/sizeof(int)); i++) {
+	for (size_t i=0; i<(cfg.size/sizeof(int)); i++) {
 		buffer[i] = rand();
 		cfg.write_parity ^= buffer[i];
 	}
-	count = write(cfg.nvme_read_fd, (void *)buffer, cfg.chunk_size*cfg.chunks);
+	count = write(cfg.nvme_read_fd, (void *)buffer, cfg.size);
 	if (count == -1){
 		ret = -1;
 		goto out;
@@ -82,17 +83,17 @@ static int readdata()
 	ssize_t count;
 	int ret = 0;
 
-	if (posix_memalign((void **)&buffer, cfg.page_size, cfg.chunk_size*cfg.chunks))
+	if (posix_memalign((void **)&buffer, cfg.page_size, cfg.size))
 		return -1;
 
-	count = read(cfg.nvme_write_fd, (void *)buffer, cfg.chunk_size*cfg.chunks);
+	count = read(cfg.nvme_write_fd, (void *)buffer, cfg.size);
 	if (count == -1) {
 		ret = -1;
 		goto out;
 	}
 
 	cfg.read_parity = 0;
-	for (size_t i=0; i<(cfg.chunk_size*cfg.chunks/sizeof(int)); i++)
+	for (size_t i=0; i<(cfg.size/sizeof(int)); i++)
 		cfg.read_parity ^= buffer[i];
 
 out:
@@ -148,11 +149,12 @@ int main(int argc, char **argv)
 	srand(cfg.seed);
 
 	cfg.page_size = sysconf(_SC_PAGESIZE);
+	cfg.size = cfg.chunk_size*cfg.chunks;
 
 	fprintf(stdout,"Running p2pmem-test: reading %s : writing %s : "
 		"p2pmem buffer %s.\n",cfg.nvme_read_filename, cfg.nvme_write_filename,
 		cfg.p2pmem_filename);
-	val = cfg.chunk_size*cfg.chunks;
+	val = cfg.size;
 	suf = suffix_si_get(&val);
 	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %g%sB.\n",
 		cfg.chunk_size, cfg.chunks, val, suf);
@@ -198,7 +200,7 @@ int main(int argc, char **argv)
 			cfg.read_parity);
 
 	fprintf(stdout, "Transfer:\n");
-	report_transfer_rate(stdout, &start_time, &end_time, cfg.chunk_size*cfg.chunks);
+	report_transfer_rate(stdout, &start_time, &end_time, cfg.size);
 	fprintf(stdout, "\n");
 
 	munmap(p2pmem, cfg.chunk_size);
