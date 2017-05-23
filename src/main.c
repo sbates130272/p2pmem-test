@@ -18,10 +18,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <argconfig/argconfig.h>
+#include <argconfig/report.h>
 
 #include "version.h"
 
@@ -102,6 +104,7 @@ int main(int argc, char **argv)
 {
 	void *p2pmem;
 	ssize_t count;
+	struct timeval start_time, end_time;
 
 	const struct argconfig_options opts[] = {
 		{"nvme-read", .cfg_type=CFG_FD_RDWR_DIRECT,
@@ -160,6 +163,7 @@ int main(int argc, char **argv)
 	if (lseek(cfg.nvme_read_fd, 0, SEEK_SET) == -1)
 		perror("writedata-lseek");
 
+	gettimeofday(&start_time, NULL);
 	for (size_t i=0; i<cfg.chunks; i++) {
 
 		count = read(cfg.nvme_read_fd, p2pmem, cfg.size);
@@ -172,6 +176,7 @@ int main(int argc, char **argv)
 		if (count == -1)
 			perror("write");
 	}
+	gettimeofday(&end_time, NULL);
 
 	if (cfg.check) {
 		if (lseek(cfg.nvme_write_fd, 0, SEEK_SET) == -1)
@@ -186,6 +191,10 @@ int main(int argc, char **argv)
 			cfg.write_parity,
 			cfg.write_parity==cfg.read_parity ? "=" : "!=",
 			cfg.read_parity);
+
+	fprintf(stdout, "Transfer:\n");
+	report_transfer_rate(stdout, &start_time, &end_time, cfg.size*cfg.chunks);
+	fprintf(stdout, "\n");
 
 	munmap(p2pmem, cfg.size);
 
