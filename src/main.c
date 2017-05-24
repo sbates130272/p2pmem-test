@@ -128,11 +128,11 @@ int main(int argc, char **argv)
 		 .help="p2pmem device to use as buffer"},
 		{"check", 'a', "", CFG_NONE, &cfg.check, no_argument,
 		 "perform checksum check on transfer (slow)"},
-		{"chunks", 'c', "", CFG_SIZE, &cfg.chunks, required_argument,
+		{"chunks", 'c', "", CFG_LONG_SUFFIX, &cfg.chunks, required_argument,
 		 "number of chunks to transfer"},
 		{"seed", 'b', "", CFG_INT, &cfg.seed, required_argument,
 		 "seed to use for random data (-1 for time based)"},
-		{"size", 's', "", CFG_SIZE, &cfg.chunk_size, required_argument,
+		{"size", 's', "", CFG_LONG_SUFFIX, &cfg.chunk_size, required_argument,
 		 "size of data chunk"},
 		{NULL}
 	};
