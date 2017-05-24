@@ -21,7 +21,7 @@ DESTDIR ?=
 LIBARGCONFIGDIR=libargconfig
 
 CPPFLAGS=-Iinc -Ibuild
-CFLAGS=-g -O2 -fPIC -Wall -Werror -I$(LIBARGCONFIGDIR)/inc
+CFLAGS=-std=gnu99 -g -O2 -fPIC -Wall -Werror -I$(LIBARGCONFIGDIR)/inc
 DEPFLAGS= -MT $@ -MMD -MP -MF $(OBJDIR)/$*.d
 
 EXE=p2pmem-test
