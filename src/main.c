@@ -104,7 +104,7 @@ out:
 
 int main(int argc, char **argv)
 {
-	void *p2pmem;
+	void *buffer = NULL;
 	ssize_t count;
 	struct timeval start_time, end_time;
 	double val;
@@ -123,9 +123,8 @@ int main(int argc, char **argv)
 		 .help="NVMe device to write"},
 		{"p2pmem", .cfg_type=CFG_FD_RDWR,
 		 .value_addr=&cfg.p2pmem_fd,
-		 .argument_type=required_positional,
-		 .force_default="/dev/p2pmem0",
-		 .help="p2pmem device to use as buffer"},
+		 .argument_type=optional_positional,
+		 .help="p2pmem device to use as buffer (omit for sys memory)"},
 		{"check", 'a', "", CFG_NONE, &cfg.check, no_argument,
 		 "perform checksum check on transfer (slow)"},
 		{"chunks", 'c', "", CFG_LONG_SUFFIX, &cfg.chunks, required_argument,
@@ -138,18 +137,22 @@ int main(int argc, char **argv)
 	};
 
 	argconfig_parse(argc, argv, desc, opts, &cfg, sizeof(cfg));
+	cfg.page_size = sysconf(_SC_PAGESIZE);
+	cfg.size = cfg.chunk_size*cfg.chunks;
 
-	p2pmem = mmap(NULL, cfg.chunk_size, PROT_READ | PROT_WRITE, MAP_SHARED,
-		      cfg.p2pmem_fd, 0);
-	if (p2pmem == MAP_FAILED)
+	if (cfg.p2pmem_fd) {
+	    buffer = mmap(NULL, cfg.chunk_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+		       cfg.p2pmem_fd, 0);
+	    if (buffer == MAP_FAILED)
 		perror("mmap");
+	} else {
+	    if(posix_memalign(&buffer, cfg.page_size, cfg.chunk_size))
+		perror("posix_memalign");
+	}
 
 	if ( cfg.seed == -1 )
 		cfg.seed = time(NULL);
 	srand(cfg.seed);
-
-	cfg.page_size = sysconf(_SC_PAGESIZE);
-	cfg.size = cfg.chunk_size*cfg.chunks;
 
 	fprintf(stdout,"Running p2pmem-test: reading %s : writing %s : "
 		"p2pmem buffer %s.\n",cfg.nvme_read_filename, cfg.nvme_write_filename,
@@ -158,7 +161,8 @@ int main(int argc, char **argv)
 	suf = suffix_si_get(&val);
 	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %g%sB.\n",
 		cfg.chunk_size, cfg.chunks, val, suf);
-	fprintf(stdout,"\tp2pmem = %p\n", p2pmem);
+	fprintf(stdout,"\tbuffer = %p (%s)\n", buffer,
+		cfg.p2pmem_fd ? "p2pmem" : "system memory");
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
 	if (cfg.check)
 		fprintf(stdout,"\tchecking data with seed = %d\n", cfg.seed);
@@ -173,12 +177,12 @@ int main(int argc, char **argv)
 	gettimeofday(&start_time, NULL);
 	for (size_t i=0; i<cfg.chunks; i++) {
 
-		count = read(cfg.nvme_read_fd, p2pmem, cfg.chunk_size);
+		count = read(cfg.nvme_read_fd, buffer, cfg.chunk_size);
 
 		if (count == -1)
 			perror("read");
 
-		count = write(cfg.nvme_write_fd, p2pmem, cfg.chunk_size);
+		count = write(cfg.nvme_write_fd, buffer, cfg.chunk_size);
 
 		if (count == -1)
 			perror("write");
@@ -203,7 +207,10 @@ int main(int argc, char **argv)
 	report_transfer_rate(stdout, &start_time, &end_time, cfg.size);
 	fprintf(stdout, "\n");
 
-	munmap(p2pmem, cfg.chunk_size);
+	if (cfg.p2pmem_fd)
+	    munmap(buffer, cfg.chunk_size);
+	else
+	    free(buffer);
 
 	return 0;
 }
