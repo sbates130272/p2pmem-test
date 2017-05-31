@@ -253,13 +253,13 @@ int main(int argc, char **argv)
 		fprintf(stdout,"\tchecking data with seed = %d\n", cfg.seed);
 
 	if (cfg.host_access)
-		if (hosttest(cfg)) {
+		if (hosttest()) {
 			perror("hosttest");
 			goto free_fail_out;
 		}
 
 	if (cfg.check)
-		if (writedata(cfg)) {
+		if (writedata()) {
 			perror("writedata");
 			goto free_fail_out;
 		}
@@ -293,7 +293,7 @@ int main(int argc, char **argv)
 			perror("readdata-lseek");
 			goto free_fail_out;
 		}
-		if (readdata(cfg)) {
+		if (readdata()) {
 			perror("readdata");
 			goto free_fail_out;
 		}
