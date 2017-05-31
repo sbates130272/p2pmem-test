@@ -17,6 +17,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <time.h>
@@ -57,75 +58,81 @@ static struct {
 	.seed        = -1,
 };
 
+static void randfill(void *buf, size_t len)
+{
+	uint8_t *cbuf = buf;
+
+	for (int i = 0; i < len; i++)
+		cbuf[i] = rand();
+}
+
+static int written_later(int idx, size_t *offsets, size_t count)
+{
+	for (int i = idx + 1; i < count; i++) {
+		if (offsets[idx] == offsets[i]) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static void print_buf(void *buf, size_t len)
+{
+	uint8_t *cbuf = buf;
+	for (int i = len-1; i >= 0; i--)
+		printf("%02X", cbuf[i]);
+}
+
 static int hosttest(void)
 {
-	unsigned char hostwrdata[abs(cfg.host_access)*HOST_ACCESSES],
-		hostrddata[abs(cfg.host_access)*HOST_ACCESSES];
-	size_t offset, offsets[HOST_ACCESSES],
-		hostbytes = abs(cfg.host_access)*HOST_ACCESSES;
+	size_t offsets[HOST_ACCESSES];
 	struct hostaccess {
-		char entry[abs(cfg.host_access)];
-	};
-	struct hostaccess *hostdataptr = (struct hostaccess *)&hostwrdata[0];
+		uint8_t entry[abs(cfg.host_access)];
+	} __attribute__ (( packed ));
 
-	if (hostbytes > cfg.size) {
+	struct hostaccess wdata[HOST_ACCESSES], rdata[HOST_ACCESSES];
+	struct hostaccess *mem = cfg.buffer;
+	size_t count = cfg.chunk_size / sizeof(struct hostaccess);
+
+	if (sizeof(wdata) > cfg.size) {
 		errno = ENOMEM;
 		return -1;
 	}
 
+	for (int i = 0; i < HOST_ACCESSES; i++)
+		offsets[i] = rand() % count;
+
 	if (cfg.host_access > 0) {
+		randfill(wdata, sizeof(wdata));
 
-		for (size_t i=0; i<hostbytes; i++)
-			hostwrdata[i] = (char)rand();
-
-		for(size_t i=0; i<HOST_ACCESSES; i++) {
-
-			offsets[i] = (size_t)(rand() % (cfg.chunk_size /
-							abs(cfg.host_access)));
-			*((struct hostaccess *)(cfg.buffer) + offsets[i]) =
-				*(hostdataptr + i);
-		}
+		for(size_t i = 0; i < HOST_ACCESSES; i++)
+			mem[offsets[i]] = wdata[i];
 	}
 
-        hostdataptr = (struct hostaccess *)&hostrddata[0];
-	for(size_t i=0; i<HOST_ACCESSES; i++) {
+	for(size_t i = 0; i < HOST_ACCESSES; i++)
+		rdata[i] = mem[offsets[i]];
 
-		if (cfg.host_access < 0 )
-			offset = (size_t)(rand() % (cfg.chunk_size /
-						    abs(cfg.host_access)));
-		else
-			offset = offsets[i];
-		*(hostdataptr + i) =
-			*((struct hostaccess *)(cfg.buffer) + offset);
+	if (cfg.host_access <= 0)
+		return 0;
+
+	for (size_t i = 0; i < HOST_ACCESSES; i++) {
+		if (written_later(i, offsets, HOST_ACCESSES))
+			continue;
+
+		if (memcmp(&rdata[i], &wdata[i], sizeof(rdata[i])) == 0)
+			continue;
+
+		printf("MISMATCH on host_access %04zd : ", i);
+		print_buf(&wdata[i], sizeof(wdata[i]));
+		printf(" != ");
+		print_buf(&rdata[i], sizeof(rdata[i]));
+		printf("\n");
+		errno = EINVAL;
+		return -1;
 	}
+	fprintf(stdout, "MATCH on host_access.\n");
 
-	if (cfg.check && (cfg.host_access > 0)) {
-
-		for (size_t i=0; i<HOST_ACCESSES; i++) {
-
-			unsigned compare = 1;
-			for (size_t j=0; j<HOST_ACCESSES; j++) {
-				if (offsets[i] == offsets[j]) {
-					compare = 0; // Don't check double writes.
-					break;
-				}
-			}
-			if (compare && (hostwrdata[i] != hostrddata[i])) {
-				fprintf(stdout, "MISMATCH on host_access %04zd "\
-					": 0x%02x != 0x%02x\n", i, hostwrdata[i],
-					hostrddata[i]);
-				errno = EINVAL;
-				return -1;
-			}
-		}
-		fprintf(stdout, "MATCH on host_access.\n");
-	}
-
-	/*
-	 * Reset RNG so writedata is consistent.
-	 */
-
-	srand(cfg.seed);
 	return 0;
 }
 
@@ -252,11 +259,13 @@ int main(int argc, char **argv)
 	if (cfg.check)
 		fprintf(stdout,"\tchecking data with seed = %d\n", cfg.seed);
 
-	if (cfg.host_access)
+	if (cfg.host_access) {
 		if (hosttest()) {
 			perror("hosttest");
 			goto free_fail_out;
 		}
+		srand(cfg.seed);
+	}
 
 	if (cfg.check)
 		if (writedata()) {
