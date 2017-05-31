@@ -57,7 +57,7 @@ static struct {
 	.seed        = -1,
 };
 
-static int hosttest()
+static int hosttest(void)
 {
 	unsigned char hostwrdata[abs(cfg.host_access)*HOST_ACCESSES],
 		hostrddata[abs(cfg.host_access)*HOST_ACCESSES];
@@ -129,7 +129,7 @@ static int hosttest()
 	return 0;
 }
 
-static int writedata()
+static int writedata(void)
 {
 	int *buffer;
 	ssize_t count;
@@ -154,7 +154,7 @@ out:
 	return ret;
 }
 
-static int readdata()
+static int readdata(void)
 {
 	int *buffer;
 	ssize_t count;
