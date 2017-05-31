@@ -67,7 +67,7 @@ static int writedata()
 		cfg.write_parity ^= buffer[i];
 	}
 	count = write(cfg.nvme_read_fd, (void *)buffer, cfg.size);
-	if (count == -1){
+	if (count == -1) {
 		ret = -1;
 		goto out;
 	}
@@ -141,13 +141,17 @@ int main(int argc, char **argv)
 	cfg.size = cfg.chunk_size*cfg.chunks;
 
 	if (cfg.p2pmem_fd) {
-	    buffer = mmap(NULL, cfg.chunk_size, PROT_READ | PROT_WRITE, MAP_SHARED,
-		       cfg.p2pmem_fd, 0);
-	    if (buffer == MAP_FAILED)
-		perror("mmap");
+		buffer = mmap(NULL, cfg.chunk_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+			      cfg.p2pmem_fd, 0);
+		if (buffer == MAP_FAILED) {
+			perror("mmap");
+			goto fail_out;
+		}
 	} else {
-	    if(posix_memalign(&buffer, cfg.page_size, cfg.chunk_size))
-		perror("posix_memalign");
+		if (posix_memalign(&buffer, cfg.page_size, cfg.chunk_size)) {
+			perror("posix_memalign");
+			goto fail_out;
+		}
 	}
 
 	if ( cfg.seed == -1 )
@@ -168,32 +172,44 @@ int main(int argc, char **argv)
 		fprintf(stdout,"\tchecking data with seed = %d\n", cfg.seed);
 
 	if (cfg.check)
-		if (writedata(cfg))
+		if (writedata(cfg)) {
 			perror("writedata");
+			goto free_fail_out;
+		}
 
-	if (lseek(cfg.nvme_read_fd, 0, SEEK_SET) == -1)
+	if (lseek(cfg.nvme_read_fd, 0, SEEK_SET) == -1) {
 		perror("writedata-lseek");
+		goto free_fail_out;
+	}
 
 	gettimeofday(&start_time, NULL);
 	for (size_t i=0; i<cfg.chunks; i++) {
 
 		count = read(cfg.nvme_read_fd, buffer, cfg.chunk_size);
 
-		if (count == -1)
+		if (count == -1) {
 			perror("read");
+			goto free_fail_out;
+		}
 
 		count = write(cfg.nvme_write_fd, buffer, cfg.chunk_size);
 
-		if (count == -1)
+		if (count == -1) {
 			perror("write");
+			goto free_fail_out;
+		}
 	}
 	gettimeofday(&end_time, NULL);
 
 	if (cfg.check) {
-		if (lseek(cfg.nvme_write_fd, 0, SEEK_SET) == -1)
+		if (lseek(cfg.nvme_write_fd, 0, SEEK_SET) == -1) {
 			perror("readdata-lseek");
-		if (readdata(cfg))
+			goto free_fail_out;
+		}
+		if (readdata(cfg)) {
 			perror("readdata");
+			goto free_fail_out;
+		}
 	}
 
 	if (cfg.check)
@@ -208,9 +224,18 @@ int main(int argc, char **argv)
 	fprintf(stdout, "\n");
 
 	if (cfg.p2pmem_fd)
-	    munmap(buffer, cfg.chunk_size);
+		munmap(buffer, cfg.chunk_size);
 	else
-	    free(buffer);
+		free(buffer);
 
-	return 0;
+	return EXIT_SUCCESS;
+
+
+free_fail_out:
+	if (cfg.p2pmem_fd)
+		munmap(buffer, cfg.chunk_size);
+	else
+		free(buffer);
+fail_out:
+	return EXIT_FAILURE;
 }
