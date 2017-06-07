@@ -45,6 +45,7 @@ static struct {
 	size_t   chunk_size;
 	size_t   chunks;
 	int      host_access;
+	size_t   offset;
 	long     page_size;
 	int      read_parity;
 	int      seed;
@@ -55,6 +56,7 @@ static struct {
 	.chunk_size  = 4096,
 	.chunks      = 1024,
 	.host_access = 0,
+	.offset      = 0,
 	.seed        = -1,
 };
 
@@ -214,6 +216,8 @@ int main(int argc, char **argv)
 		 "number of chunks to transfer"},
 		{"host_access", 0, "", CFG_INT, &cfg.host_access, required_argument,
 		 "alignment and size for host access test (0 = no test, <0 = read only test)"},
+		{"offset", 'o', "", CFG_LONG_SUFFIX, &cfg.offset, required_argument,
+		 "offset into the p2pmem buffer"},
 		{"seed", 0, "", CFG_INT, &cfg.seed, required_argument,
 		 "seed to use for random data (-1 for time based)"},
 		{"size", 's', "", CFG_LONG_SUFFIX, &cfg.chunk_size, required_argument,
@@ -225,9 +229,14 @@ int main(int argc, char **argv)
 	cfg.page_size = sysconf(_SC_PAGESIZE);
 	cfg.size = cfg.chunk_size*cfg.chunks;
 
+	if (!cfg.p2pmem_fd && cfg.offset) {
+		fprintf(stderr,"Only use --offset (-o) with p2pmem!\n");
+		goto fail_out;
+	}
+
 	if (cfg.p2pmem_fd) {
 		cfg.buffer = mmap(NULL, cfg.chunk_size, PROT_READ | PROT_WRITE, MAP_SHARED,
-				  cfg.p2pmem_fd, 0);
+				  cfg.p2pmem_fd, cfg.offset);
 		if (cfg.buffer == MAP_FAILED) {
 			perror("mmap");
 			goto fail_out;
