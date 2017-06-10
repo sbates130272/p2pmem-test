@@ -14,12 +14,14 @@
  */
 
 #include <errno.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/mman.h>
 #include <sys/time.h>
+#include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -50,6 +52,7 @@ static struct {
 	int      read_parity;
 	int      seed;
 	size_t   size;
+	size_t   threads;
 	int      write_parity;
 } cfg = {
 	.check       = 0,
@@ -58,6 +61,12 @@ static struct {
 	.host_access = 0,
 	.offset      = 0,
 	.seed        = -1,
+	.threads     = 1,
+};
+
+struct thread_info {
+	pthread_t thread_id;
+	size_t thread;
 };
 
 static void randfill(void *buf, size_t len)
@@ -187,10 +196,35 @@ out:
 	return ret;
 }
 
+static void *thread_run(void *args)
+{
+	struct thread_info *tinfo = (struct thread_info *)args;
+	off_t offset = tinfo->thread*cfg.size/cfg.threads;
+	ssize_t count, boffset = tinfo->thread*cfg.chunk_size;
+
+	for (size_t i=0; i<cfg.chunks/cfg.threads; i++) {
+
+		count = pread(cfg.nvme_read_fd, cfg.buffer+boffset, cfg.chunk_size, offset);
+
+		if (count == -1) {
+			perror("pread");
+			exit(EXIT_FAILURE);
+		}
+
+		count = pwrite(cfg.nvme_write_fd, cfg.buffer+boffset, cfg.chunk_size, offset);
+
+		if (count == -1) {
+			perror("pwrite");
+			exit(EXIT_FAILURE);
+		}
+		offset += cfg.chunk_size;
+	}
+
+	return NULL;
+}
 
 int main(int argc, char **argv)
 {
-	ssize_t count;
 	struct timeval start_time, end_time;
 	double val;
 	const char *suf;
@@ -222,6 +256,8 @@ int main(int argc, char **argv)
 		 "seed to use for random data (-1 for time based)"},
 		{"size", 's', "", CFG_LONG_SUFFIX, &cfg.chunk_size, required_argument,
 		 "size of data chunk"},
+		{"threads", 't', "", CFG_POSITIVE, &cfg.threads, required_argument,
+		 "number of read/write threads to use"},
 		{NULL}
 	};
 
@@ -229,20 +265,30 @@ int main(int argc, char **argv)
 	cfg.page_size = sysconf(_SC_PAGESIZE);
 	cfg.size = cfg.chunk_size*cfg.chunks;
 
+	if (cfg.p2pmem_fd && (cfg.chunk_size % cfg.page_size)){
+		fprintf(stderr, "--size must be a multiple of PAGE_SIZE in p2pmem mode.\n");
+		goto fail_out;
+	}
+
 	if (!cfg.p2pmem_fd && cfg.offset) {
 		fprintf(stderr,"Only use --offset (-o) with p2pmem!\n");
 		goto fail_out;
 	}
 
+	if (cfg.chunks % cfg.threads) {
+		fprintf(stderr,"--chunks not evenly divisable by --threads!\n");
+		goto fail_out;
+	}
+
 	if (cfg.p2pmem_fd) {
-		cfg.buffer = mmap(NULL, cfg.chunk_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+		cfg.buffer = mmap(NULL, cfg.chunk_size*cfg.threads, PROT_READ | PROT_WRITE, MAP_SHARED,
 				  cfg.p2pmem_fd, cfg.offset);
 		if (cfg.buffer == MAP_FAILED) {
 			perror("mmap");
 			goto fail_out;
 		}
 	} else {
-		if (posix_memalign(&cfg.buffer, cfg.page_size, cfg.chunk_size)) {
+		if (posix_memalign(&cfg.buffer, cfg.page_size, cfg.chunk_size*cfg.threads)) {
 			perror("posix_memalign");
 			goto fail_out;
 		}
@@ -257,8 +303,8 @@ int main(int argc, char **argv)
 		cfg.p2pmem_filename);
 	val = cfg.size;
 	suf = suffix_si_get(&val);
-	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %g%sB.\n",
-		cfg.chunk_size, cfg.chunks, val, suf);
+	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %g%sB : "
+		"thread(s) = %zd\n", cfg.chunk_size, cfg.chunks, val, suf, cfg.threads);
 	fprintf(stdout,"\tbuffer = %p (%s)\n", cfg.buffer,
 		cfg.p2pmem_fd ? "p2pmem" : "system memory");
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
@@ -287,21 +333,28 @@ int main(int argc, char **argv)
 		goto free_fail_out;
 	}
 
+	struct thread_info *tinfo;
+	tinfo = calloc(cfg.threads, sizeof(*tinfo));
+	if (tinfo == NULL) {
+		perror("calloc");
+		goto free_fail_out;
+	}
+
 	gettimeofday(&start_time, NULL);
-	for (size_t i=0; i<cfg.chunks; i++) {
-
-		count = read(cfg.nvme_read_fd, cfg.buffer, cfg.chunk_size);
-
-		if (count == -1) {
-			perror("read");
-			goto free_fail_out;
+	for (size_t t = 0; t < cfg.threads; t++) {
+		tinfo[t].thread = t;
+		int s = pthread_create(&tinfo[t].thread_id, NULL,
+				       &thread_run, &tinfo[t]);
+		if (s != 0) {
+			perror("pthread_create");
+			goto free_free_fail_out;
 		}
-
-		count = write(cfg.nvme_write_fd, cfg.buffer, cfg.chunk_size);
-
-		if (count == -1) {
-			perror("write");
-			goto free_fail_out;
+	}
+	for (size_t t = 0; t < cfg.threads; t++) {
+		int s = pthread_join(tinfo[t].thread_id, NULL);
+		if (s != 0) {
+			perror("pthread_join");
+			goto free_free_fail_out;
 		}
 	}
 	gettimeofday(&end_time, NULL);
@@ -328,6 +381,7 @@ int main(int argc, char **argv)
 	report_transfer_rate(stdout, &start_time, &end_time, cfg.size);
 	fprintf(stdout, "\n");
 
+	free(tinfo);
 	if (cfg.p2pmem_fd)
 		munmap(cfg.buffer, cfg.chunk_size);
 	else
@@ -335,7 +389,8 @@ int main(int argc, char **argv)
 
 	return EXIT_SUCCESS;
 
-
+free_free_fail_out:
+	free(tinfo);
 free_fail_out:
 	if (cfg.p2pmem_fd)
 		munmap(cfg.buffer, cfg.chunk_size);
