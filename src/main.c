@@ -14,12 +14,16 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
+#include <linux/fs.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/uio.h>
 #include <time.h>
@@ -32,6 +36,7 @@
 #include "version.h"
 
 #define HOST_ACCESSES 32
+#define min(x,y) (x < y) ? x : y
 
 const char *desc = "Perform p2pmem and NVMe CMB testing (ver=" VERSION ")";
 
@@ -48,18 +53,22 @@ static struct {
 	size_t   chunks;
 	int      host_access;
 	size_t   offset;
+	unsigned overlap;
 	long     page_size;
 	int      read_parity;
+	uint64_t rsize;
 	int      seed;
 	size_t   size;
 	size_t   threads;
 	int      write_parity;
+	uint64_t wsize;
 } cfg = {
 	.check       = 0,
 	.chunk_size  = 4096,
 	.chunks      = 1024,
 	.host_access = 0,
 	.offset      = 0,
+	.overlap     = 0,
 	.seed        = -1,
 	.threads     = 1,
 };
@@ -199,25 +208,45 @@ out:
 static void *thread_run(void *args)
 {
 	struct thread_info *tinfo = (struct thread_info *)args;
-	off_t offset = tinfo->thread*cfg.size/cfg.threads;
+	off_t roffset, woffset;
 	ssize_t count, boffset = tinfo->thread*cfg.chunk_size;
+
+	roffset = tinfo->thread*((cfg.size < cfg.rsize) ? cfg.size : cfg.rsize)
+		/ cfg.threads;
+	woffset = tinfo->thread*((cfg.size < cfg.wsize) ? cfg.size : cfg.wsize)
+		/ cfg.threads;
 
 	for (size_t i=0; i<cfg.chunks/cfg.threads; i++) {
 
-		count = pread(cfg.nvme_read_fd, cfg.buffer+boffset, cfg.chunk_size, offset);
-
+		count = pread(cfg.nvme_read_fd, cfg.buffer+boffset, cfg.chunk_size, roffset);
 		if (count == -1) {
 			perror("pread");
 			exit(EXIT_FAILURE);
 		}
+		roffset += cfg.chunk_size;
+		if (roffset >= (tinfo->thread+1)*cfg.rsize/cfg.threads) {
+			if (cfg.overlap) {
+				roffset = tinfo->thread*cfg.rsize/cfg.threads;
+			} else {
+				perror("read-overflow");
+				exit(EXIT_FAILURE);
+			}
+		}
 
-		count = pwrite(cfg.nvme_write_fd, cfg.buffer+boffset, cfg.chunk_size, offset);
-
+		count = pwrite(cfg.nvme_write_fd, cfg.buffer+boffset, cfg.chunk_size, woffset);
 		if (count == -1) {
 			perror("pwrite");
 			exit(EXIT_FAILURE);
 		}
-		offset += cfg.chunk_size;
+		woffset += cfg.chunk_size;
+		if (woffset >= (tinfo->thread+1)*cfg.wsize/cfg.threads) {
+			if (cfg.overlap) {
+				woffset = tinfo->thread*cfg.wsize/cfg.threads;
+			} else {
+				perror("write-overflow");
+				exit(EXIT_FAILURE);
+			}
+		}
 	}
 
 	return NULL;
@@ -248,14 +277,16 @@ int main(int argc, char **argv)
 		 "perform checksum check on transfer (slow)"},
 		{"chunks", 'c', "", CFG_LONG_SUFFIX, &cfg.chunks, required_argument,
 		 "number of chunks to transfer"},
+		{"chunk_size", 's', "", CFG_LONG_SUFFIX, &cfg.chunk_size, required_argument,
+		 "size of data chunk"},
 		{"host_access", 0, "", CFG_INT, &cfg.host_access, required_argument,
 		 "alignment and size for host access test (0 = no test, <0 = read only test)"},
 		{"offset", 'o', "", CFG_LONG_SUFFIX, &cfg.offset, required_argument,
 		 "offset into the p2pmem buffer"},
+		{"overlap", 0, "", CFG_NONE, &cfg.overlap, no_argument,
+		 "Allow overlapping of read and/or write files."},
 		{"seed", 0, "", CFG_INT, &cfg.seed, required_argument,
 		 "seed to use for random data (-1 for time based)"},
-		{"size", 's', "", CFG_LONG_SUFFIX, &cfg.chunk_size, required_argument,
-		 "size of data chunk"},
 		{"threads", 't', "", CFG_POSITIVE, &cfg.threads, required_argument,
 		 "number of read/write threads to use"},
 		{NULL}
@@ -264,6 +295,33 @@ int main(int argc, char **argv)
 	argconfig_parse(argc, argv, desc, opts, &cfg, sizeof(cfg));
 	cfg.page_size = sysconf(_SC_PAGESIZE);
 	cfg.size = cfg.chunk_size*cfg.chunks;
+
+	if (ioctl(cfg.nvme_read_fd, BLKGETSIZE64, &cfg.rsize)) {
+		perror("ioctl-read");
+		goto fail_out;
+	}
+	if (ioctl(cfg.nvme_write_fd, BLKGETSIZE64, &cfg.wsize)) {
+		perror("ioctl-write");
+		goto fail_out;
+	}
+
+	if (cfg.overlap && cfg.check) {
+		fprintf(stderr, "can not set --overlap and --check at the "
+			"same time (overlap kills check).\n");
+		goto fail_out;
+	}
+
+	if (cfg.overlap && (min(cfg.rsize, cfg.wsize) >  cfg.size)) {
+		fprintf(stderr, "do not set --overlap when its not needed "
+			"(%lu, %lu, %zd).\n", cfg.rsize, cfg.wsize, cfg.size);
+		goto fail_out;
+	}
+
+	if (!cfg.overlap && (min(cfg.rsize, cfg.wsize) <  cfg.size)) {
+		fprintf(stderr, "read and write files must be at least "
+			"as big as --chunks*--chunks_size (or use --overlap).\n");
+		goto fail_out;
+	}
 
 	if (cfg.p2pmem_fd && (cfg.chunk_size % cfg.page_size)){
 		fprintf(stderr, "--size must be a multiple of PAGE_SIZE in p2pmem mode.\n");
@@ -304,7 +362,8 @@ int main(int argc, char **argv)
 	val = cfg.size;
 	suf = suffix_si_get(&val);
 	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %g%sB : "
-		"thread(s) = %zd\n", cfg.chunk_size, cfg.chunks, val, suf, cfg.threads);
+		"thread(s) = %zd : overlap = %s.\n", cfg.chunk_size, cfg.chunks, val, suf,
+		cfg.threads, cfg.overlap ? "ON" : "OFF");
 	fprintf(stdout,"\tbuffer = %p (%s)\n", cfg.buffer,
 		cfg.p2pmem_fd ? "p2pmem" : "system memory");
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
