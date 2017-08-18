@@ -230,17 +230,17 @@ int main(int argc, char **argv)
 	const char *suf;
 
 	const struct argconfig_options opts[] = {
-		{"nvme-read", .cfg_type=CFG_FD_RDWR_DIRECT,
+		{"nvme-read", .cfg_type=CFG_FD_RDWR_DIRECT_NC,
 		 .value_addr=&cfg.nvme_read_fd,
 		 .argument_type=required_positional,
 		 .force_default="/dev/nvme0n1",
 		 .help="NVMe device to read"},
-		{"nvme-write", .cfg_type=CFG_FD_RDWR_DIRECT,
+		{"nvme-write", .cfg_type=CFG_FD_RDWR_DIRECT_NC,
 		 .value_addr=&cfg.nvme_write_fd,
 		 .argument_type=required_positional,
 		 .force_default="/dev/nvme1n1",
 		 .help="NVMe device to write"},
-		{"p2pmem", .cfg_type=CFG_FD_RDWR,
+		{"p2pmem", .cfg_type=CFG_FD_RDWR_NC,
 		 .value_addr=&cfg.p2pmem_fd,
 		 .argument_type=optional_positional,
 		 .help="p2pmem device to use as buffer (omit for sys memory)"},
