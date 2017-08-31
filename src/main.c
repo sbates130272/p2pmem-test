@@ -255,8 +255,8 @@ static void *thread_run(void *args)
 int main(int argc, char **argv)
 {
 	struct timeval start_time, end_time;
-	double val;
-	const char *suf;
+	double rval, wval, val;
+	const char *rsuf, *wsuf, *suf;
 
 	const struct argconfig_options opts[] = {
 		{"nvme-read", .cfg_type=CFG_FD_RDWR_DIRECT_NC,
@@ -356,12 +356,16 @@ int main(int argc, char **argv)
 		cfg.seed = time(NULL);
 	srand(cfg.seed);
 
-	fprintf(stdout,"Running p2pmem-test: reading %s : writing %s : "
-		"p2pmem buffer %s.\n",cfg.nvme_read_filename, cfg.nvme_write_filename,
-		cfg.p2pmem_filename);
+	rval = cfg.rsize;
+	rsuf = suffix_si_get(&rval);
+	wval = cfg.wsize;
+	wsuf = suffix_si_get(&wval);
+	fprintf(stdout,"Running p2pmem-test: reading %s (%.4g%sB): writing %s (%.4g%sB): "
+		"p2pmem buffer %s.\n",cfg.nvme_read_filename, rval, rsuf,
+		cfg.nvme_write_filename, wval, wsuf, cfg.p2pmem_filename);
 	val = cfg.size;
 	suf = suffix_si_get(&val);
-	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %g%sB : "
+	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %.4g%sB : "
 		"thread(s) = %zd : overlap = %s.\n", cfg.chunk_size, cfg.chunks, val, suf,
 		cfg.threads, cfg.overlap ? "ON" : "OFF");
 	fprintf(stdout,"\tbuffer = %p (%s)\n", cfg.buffer,
