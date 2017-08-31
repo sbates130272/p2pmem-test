@@ -59,6 +59,8 @@ static struct {
 	uint64_t rsize;
 	int      seed;
 	size_t   size;
+	unsigned skip_read;
+	unsigned skip_write;
 	size_t   threads;
 	int      write_parity;
 	uint64_t wsize;
@@ -70,6 +72,8 @@ static struct {
 	.offset      = 0,
 	.overlap     = 0,
 	.seed        = -1,
+	.skip_read   = 0,
+	.skip_write  = 0,
 	.threads     = 1,
 };
 
@@ -218,6 +222,9 @@ static void *thread_run(void *args)
 
 	for (size_t i=0; i<cfg.chunks/cfg.threads; i++) {
 
+		if (cfg.skip_read)
+			goto write;
+
 		count = pread(cfg.nvme_read_fd, cfg.buffer+boffset, cfg.chunk_size, roffset);
 		if (count == -1) {
 			perror("pread");
@@ -232,6 +239,9 @@ static void *thread_run(void *args)
 				exit(EXIT_FAILURE);
 			}
 		}
+	write:
+		if (cfg.skip_write)
+			continue;
 
 		count = pwrite(cfg.nvme_write_fd, cfg.buffer+boffset, cfg.chunk_size, woffset);
 		if (count == -1) {
@@ -287,6 +297,10 @@ int main(int argc, char **argv)
 		 "Allow overlapping of read and/or write files."},
 		{"seed", 0, "", CFG_INT, &cfg.seed, required_argument,
 		 "seed to use for random data (-1 for time based)"},
+		{"skip-read", 0, "", CFG_NONE, &cfg.skip_read, no_argument,
+		 "skip the read (can't be used with --check)"},
+		{"skip-write", 0, "", CFG_NONE, &cfg.skip_write, no_argument,
+		 "skip the write (can't be used with --check)"},
 		{"threads", 't', "", CFG_POSITIVE, &cfg.threads, required_argument,
 		 "number of read/write threads to use"},
 		{NULL}
@@ -302,6 +316,12 @@ int main(int argc, char **argv)
 	}
 	if (ioctl(cfg.nvme_write_fd, BLKGETSIZE64, &cfg.wsize)) {
 		perror("ioctl-write");
+		goto fail_out;
+	}
+
+	if ((cfg.skip_read || cfg.skip_write) && cfg.check) {
+		fprintf(stderr, "can not set --skip-read or --skip-write and "
+			"--check at the same time (skip-* kills check).\n");
 		goto fail_out;
 	}
 
@@ -368,6 +388,8 @@ int main(int argc, char **argv)
 	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %.4g%sB : "
 		"thread(s) = %zd : overlap = %s.\n", cfg.chunk_size, cfg.chunks, val, suf,
 		cfg.threads, cfg.overlap ? "ON" : "OFF");
+	fprintf(stdout,"\tskip-read = %s : skip-write =  %s\n",
+		cfg.skip_read ? "ON" : "OFF", cfg.skip_write ? "ON" : "OFF");
 	fprintf(stdout,"\tbuffer = %p (%s)\n", cfg.buffer,
 		cfg.p2pmem_fd ? "p2pmem" : "system memory");
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
