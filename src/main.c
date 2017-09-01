@@ -36,7 +36,10 @@
 #include "version.h"
 
 #define HOST_ACCESSES 32
-#define min(x,y) (x < y) ? x : y
+#define min(a, b)				\
+	({ __typeof__ (a) _a = (a);		\
+		__typeof__ (b) _b = (b);	\
+		_a < _b ? _a : _b; })
 
 const char *desc = "Perform p2pmem and NVMe CMB testing (ver=" VERSION ")";
 
