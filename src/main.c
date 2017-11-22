@@ -32,6 +32,7 @@
 #include <argconfig/argconfig.h>
 #include <argconfig/report.h>
 #include <argconfig/suffix.h>
+#include <argconfig/timing.h>
 
 #include "version.h"
 
@@ -54,6 +55,7 @@ static struct {
 	unsigned check;
 	size_t   chunk_size;
 	size_t   chunks;
+	int      duration;
 	int      host_access;
 	size_t   offset;
 	unsigned overlap;
@@ -64,6 +66,8 @@ static struct {
 	size_t   size;
 	unsigned skip_read;
 	unsigned skip_write;
+	struct timeval time_start;
+	struct timeval time_end;
 	size_t   threads;
 	int      write_parity;
 	uint64_t wsize;
@@ -71,6 +75,7 @@ static struct {
 	.check       = 0,
 	.chunk_size  = 4096,
 	.chunks      = 1024,
+	.duration    = -1,
 	.host_access = 0,
 	.offset      = 0,
 	.overlap     = 0,
@@ -82,7 +87,8 @@ static struct {
 
 struct thread_info {
 	pthread_t thread_id;
-	size_t thread;
+	size_t    thread;
+	size_t    total;
 };
 
 static void randfill(void *buf, size_t len)
@@ -261,16 +267,27 @@ static void *thread_run(void *args)
 				exit(EXIT_FAILURE);
 			}
 		}
-	}
 
+		tinfo->total += cfg.chunk_size;
+		if (cfg.duration > 0) {
+			struct timeval time_now;
+			double elapsed_time;
+
+			gettimeofday(&time_now, NULL);
+			elapsed_time = timeval_to_secs(&time_now) -
+				timeval_to_secs(&cfg.time_start);
+			if (elapsed_time > (double)cfg.duration)
+				return NULL;
+		}
+	}
 	return NULL;
 }
 
 int main(int argc, char **argv)
 {
-	struct timeval start_time, end_time;
 	double rval, wval, val;
 	const char *rsuf, *wsuf, *suf;
+	size_t total = 0;
 
 	const struct argconfig_options opts[] = {
 		{"nvme-read", .cfg_type=CFG_FD_RDWR_DIRECT_NC,
@@ -293,6 +310,8 @@ int main(int argc, char **argv)
 		 "number of chunks to transfer"},
 		{"chunk_size", 's', "", CFG_LONG_SUFFIX, &cfg.chunk_size, required_argument,
 		 "size of data chunk"},
+		{"duration", 'D', "", CFG_INT, &cfg.duration, required_argument,
+		 "duration to run test for (-1 for infinite)"},
 		{"host_access", 0, "", CFG_INT, &cfg.host_access, required_argument,
 		 "alignment and size for host access test (0 = no test, <0 = read only test)"},
 		{"offset", 'o', "", CFG_LONG_SUFFIX, &cfg.offset, required_argument,
@@ -380,6 +399,8 @@ int main(int argc, char **argv)
 		cfg.seed = time(NULL);
 	srand(cfg.seed);
 
+	char tmp[24];
+	sprintf(tmp, "%d", cfg.duration);
 	rval = cfg.rsize;
 	rsuf = suffix_si_get(&rval);
 	wval = cfg.wsize;
@@ -392,8 +413,9 @@ int main(int argc, char **argv)
 	fprintf(stdout,"\tchunk size = %zd : number of chunks =  %zd: total = %.4g%sB : "
 		"thread(s) = %zd : overlap = %s.\n", cfg.chunk_size, cfg.chunks, val, suf,
 		cfg.threads, cfg.overlap ? "ON" : "OFF");
-	fprintf(stdout,"\tskip-read = %s : skip-write =  %s\n",
-		cfg.skip_read ? "ON" : "OFF", cfg.skip_write ? "ON" : "OFF");
+	fprintf(stdout,"\tskip-read = %s : skip-write =  %s : duration = %s sec.\n",
+		cfg.skip_read ? "ON" : "OFF", cfg.skip_write ? "ON" : "OFF",
+		(cfg.duration <= 0) ? "INF" : tmp);
 	fprintf(stdout,"\tbuffer = %p (%s)\n", cfg.buffer,
 		cfg.p2pmem_fd ? "p2pmem" : "system memory");
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
@@ -429,7 +451,7 @@ int main(int argc, char **argv)
 		goto free_fail_out;
 	}
 
-	gettimeofday(&start_time, NULL);
+	gettimeofday(&cfg.time_start, NULL);
 	for (size_t t = 0; t < cfg.threads; t++) {
 		tinfo[t].thread = t;
 		int s = pthread_create(&tinfo[t].thread_id, NULL,
@@ -445,8 +467,9 @@ int main(int argc, char **argv)
 			perror("pthread_join");
 			goto free_free_fail_out;
 		}
+		total += tinfo[t].total;
 	}
-	gettimeofday(&end_time, NULL);
+	gettimeofday(&cfg.time_end, NULL);
 
 	if (cfg.check) {
 		if (lseek(cfg.nvme_write_fd, 0, SEEK_SET) == -1) {
@@ -467,7 +490,7 @@ int main(int argc, char **argv)
 			cfg.read_parity);
 
 	fprintf(stdout, "Transfer:\n");
-	report_transfer_rate(stdout, &start_time, &end_time, cfg.size);
+	report_transfer_rate(stdout, &cfg.time_start, &cfg.time_end, total);
 	fprintf(stdout, "\n");
 
 	free(tinfo);
