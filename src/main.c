@@ -35,7 +35,7 @@
 
 #include "version.h"
 
-#define HOST_ACCESSES 32
+#define HOST_ACCESSES 1024
 #define min(a, b)				\
 	({ __typeof__ (a) _a = (a);		\
 		__typeof__ (b) _b = (b);	\
@@ -158,7 +158,8 @@ static int hosttest(void)
 		errno = EINVAL;
 		return -1;
 	}
-	fprintf(stdout, "MATCH on host_access.\n");
+	fprintf(stdout, "MATCH on %d host accesses.\n",
+		HOST_ACCESSES);
 
 	return 0;
 }
