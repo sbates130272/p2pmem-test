@@ -36,7 +36,6 @@
 
 #include "version.h"
 
-#define HOST_ACCESSES 1024
 #define min(a, b)				\
 	({ __typeof__ (a) _a = (a);		\
 		__typeof__ (b) _b = (b);	\
@@ -56,7 +55,8 @@ static struct {
 	size_t   chunk_size;
 	size_t   chunks;
 	int      duration;
-	int      host_access;
+	unsigned host_accesses;
+	int      host_access_sz;
 	size_t   offset;
 	unsigned overlap;
 	long     page_size;
@@ -72,17 +72,18 @@ static struct {
 	int      write_parity;
 	uint64_t wsize;
 } cfg = {
-	.check       = 0,
-	.chunk_size  = 4096,
-	.chunks      = 1024,
-	.duration    = -1,
-	.host_access = 0,
-	.offset      = 0,
-	.overlap     = 0,
-	.seed        = -1,
-	.skip_read   = 0,
-	.skip_write  = 0,
-	.threads     = 1,
+	.check          = 0,
+	.chunk_size     = 4096,
+	.chunks         = 1024,
+	.duration       = -1,
+	.host_accesses  = 0,
+	.host_access_sz = 0,
+	.offset         = 0,
+	.overlap        = 0,
+	.seed           = -1,
+	.skip_read      = 0,
+	.skip_write     = 0,
+	.threads        = 1,
 };
 
 struct thread_info {
@@ -119,38 +120,45 @@ static void print_buf(void *buf, size_t len)
 
 static int hosttest(void)
 {
-	size_t offsets[HOST_ACCESSES];
+	size_t *offsets;
 	struct hostaccess {
-		uint8_t entry[abs(cfg.host_access)];
+		uint8_t entry[abs(cfg.host_access_sz)];
 	} __attribute__ (( packed ));
 
-	struct hostaccess wdata[HOST_ACCESSES], rdata[HOST_ACCESSES];
+	struct hostaccess *wdata, *rdata;
 	struct hostaccess *mem = cfg.buffer;
 	size_t count = cfg.chunk_size / sizeof(struct hostaccess);
 
-	if (sizeof(wdata) > cfg.size) {
+	offsets = (size_t *)malloc(cfg.host_accesses*sizeof(size_t));
+	wdata = (struct hostaccess*)
+		malloc(cfg.host_accesses*sizeof(struct hostaccess));
+	rdata = (struct hostaccess*)
+		malloc(cfg.host_accesses*sizeof(struct hostaccess));
+
+	if (offsets == NULL || wdata == NULL ||
+	    rdata == NULL || sizeof(wdata) > cfg.size) {
 		errno = ENOMEM;
 		return -1;
 	}
 
-	for (int i = 0; i < HOST_ACCESSES; i++)
+	for (int i = 0; i < cfg.host_accesses; i++)
 		offsets[i] = rand() % count;
 
-	if (cfg.host_access > 0) {
+	if (cfg.host_access_sz > 0) {
 		randfill(wdata, sizeof(wdata));
 
-		for(size_t i = 0; i < HOST_ACCESSES; i++)
+		for(size_t i = 0; i < cfg.host_accesses; i++)
 			mem[offsets[i]] = wdata[i];
 	}
 
-	for(size_t i = 0; i < HOST_ACCESSES; i++)
+	for(size_t i = 0; i < cfg.host_accesses; i++)
 		rdata[i] = mem[offsets[i]];
 
-	if (cfg.host_access <= 0)
+	if (cfg.host_access_sz <= 0)
 		return 0;
 
-	for (size_t i = 0; i < HOST_ACCESSES; i++) {
-		if (written_later(i, offsets, HOST_ACCESSES))
+	for (size_t i = 0; i < cfg.host_accesses; i++) {
+		if (written_later(i, offsets, cfg.host_accesses))
 			continue;
 
 		if (memcmp(&rdata[i], &wdata[i], sizeof(rdata[i])) == 0)
@@ -165,7 +173,11 @@ static int hosttest(void)
 		return -1;
 	}
 	fprintf(stdout, "MATCH on %d host accesses.\n",
-		HOST_ACCESSES);
+		cfg.host_accesses);
+
+	free(wdata);
+	free(rdata);
+	free(offsets);
 
 	return 0;
 }
@@ -283,10 +295,30 @@ static void *thread_run(void *args)
 	return NULL;
 }
 
+static void get_hostaccess(char *host_access) {
+
+	char *token;
+
+	token = strtok(host_access, ":");
+	cfg.host_access_sz = atoi(token);
+
+	if (cfg.host_access_sz == 0) {
+		cfg.host_accesses = 0;
+		return;
+	}
+	token = strtok(NULL, ":");
+	if (token == NULL)
+		cfg.host_accesses = 64;
+	else
+		cfg.host_accesses = atoi(token);
+
+}
+
 int main(int argc, char **argv)
 {
 	double rval, wval, val;
 	const char *rsuf, *wsuf, *suf;
+	char *host_access;
 	size_t total = 0;
 
 	const struct argconfig_options opts[] = {
@@ -312,8 +344,9 @@ int main(int argc, char **argv)
 		 "size of data chunk"},
 		{"duration", 'D', "", CFG_INT, &cfg.duration, required_argument,
 		 "duration to run test for (-1 for infinite)"},
-		{"host_access", 0, "", CFG_INT, &cfg.host_access, required_argument,
-		 "alignment and size for host access test (0 = no test, <0 = read only test)"},
+		{"host_access", 0, "", CFG_STRING, &host_access, required_argument,
+		 "alignment/size and (: sep [optional]) count for host access test "
+		 "(alignment/size: 0 = no test, < 0 = read only test)"},
 		{"offset", 'o', "", CFG_LONG_SUFFIX, &cfg.offset, required_argument,
 		 "offset into the p2pmem buffer"},
 		{"overlap", 0, "", CFG_NONE, &cfg.overlap, no_argument,
@@ -332,6 +365,7 @@ int main(int argc, char **argv)
 	argconfig_parse(argc, argv, desc, opts, &cfg, sizeof(cfg));
 	cfg.page_size = sysconf(_SC_PAGESIZE);
 	cfg.size = cfg.chunk_size*cfg.chunks;
+	get_hostaccess(host_access);
 
 	if (ioctl(cfg.nvme_read_fd, BLKGETSIZE64, &cfg.rsize)) {
 		perror("ioctl-read");
@@ -419,13 +453,14 @@ int main(int argc, char **argv)
 	fprintf(stdout,"\tbuffer = %p (%s)\n", cfg.buffer,
 		cfg.p2pmem_fd ? "p2pmem" : "system memory");
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
-	if (cfg.host_access)
-		fprintf(stdout,"\tchecking host access %s: alignment and size = %dB\n",
-			cfg.host_access < 0 ? "(read only) " : "", abs(cfg.host_access));
+	if (cfg.host_accesses)
+		fprintf(stdout,"\tchecking %d host accesses %s: alignment and size = %dB\n",
+			cfg.host_accesses, cfg.host_access_sz < 0 ? "(read only) " : "",
+			abs(cfg.host_access_sz));
 	if (cfg.check)
 		fprintf(stdout,"\tchecking data with seed = %d\n", cfg.seed);
 
-	if (cfg.host_access) {
+	if (cfg.host_accesses) {
 		if (hosttest()) {
 			perror("hosttest");
 			goto free_fail_out;
