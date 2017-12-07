@@ -74,6 +74,7 @@ static struct {
 	uint64_t rsize;
 	int      seed;
 	size_t   size;
+	size_t   size_mmap;
 	unsigned skip_read;
 	unsigned skip_write;
 	struct timeval time_start;
@@ -458,6 +459,7 @@ int main(int argc, char **argv)
 	argconfig_parse(argc, argv, desc, opts, &cfg, sizeof(cfg));
 	cfg.page_size = sysconf(_SC_PAGESIZE);
 	cfg.size = cfg.chunk_size*cfg.chunks;
+	cfg.size_mmap = cfg.chunk_size*cfg.threads;
 	get_hostaccess(host_access);
 	get_init(init);
 
@@ -510,7 +512,7 @@ int main(int argc, char **argv)
 	}
 
 	if (cfg.init_stop)
-		cfg.size = max(cfg.size, cfg.init_tot);
+		cfg.size_mmap = max(cfg.size_mmap, cfg.init_tot);
 
 	if (cfg.init_tot > cfg.size) {
 		fprintf(stderr,"--init init_tot exceeds mmap()'ed size!\n");
@@ -518,7 +520,7 @@ int main(int argc, char **argv)
 	}
 
 	if (cfg.p2pmem_fd) {
-		cfg.buffer = mmap(NULL, cfg.size, PROT_READ | PROT_WRITE, MAP_SHARED,
+		cfg.buffer = mmap(NULL, cfg.size_mmap, PROT_READ | PROT_WRITE, MAP_SHARED,
 				  cfg.p2pmem_fd, cfg.offset);
 		if (cfg.buffer == MAP_FAILED) {
 			perror("mmap");
@@ -552,8 +554,10 @@ int main(int argc, char **argv)
 	fprintf(stdout,"\tskip-read = %s : skip-write =  %s : duration = %s sec.\n",
 		cfg.skip_read ? "ON" : "OFF", cfg.skip_write ? "ON" : "OFF",
 		(cfg.duration <= 0) ? "INF" : tmp);
-	fprintf(stdout,"\tbuffer = %p (%s)\n", cfg.buffer,
-		cfg.p2pmem_fd ? "p2pmem" : "system memory");
+	rval = cfg.size_mmap;
+	rsuf = suffix_si_get(&rval);
+	fprintf(stdout,"\tbuffer = %p (%s): mmap = %.4g%sB\n", cfg.buffer,
+		cfg.p2pmem_fd ? "p2pmem" : "system memory", rval, rsuf);
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
 	rval = cfg.init_tot;
 	rsuf = suffix_si_get(&rval);
