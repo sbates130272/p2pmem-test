@@ -334,6 +334,18 @@ static void *thread_run(void *args)
 	return NULL;
 }
 
+static size_t get_suffix(char *string) {
+
+	size_t val;
+
+	val = suffix_binary_parse(string);
+	if (errno) {
+		fprintf(stderr,"error in get_suffix().\n");
+		exit(-1);
+	}
+	return val;
+}
+
 static void get_init(char *init) {
 
 	char *token;
@@ -353,7 +365,7 @@ static void get_init(char *init) {
 	if (token == NULL)
 		cfg.init_tot = 4096;
 	else
-		cfg.init_tot = atoi(token);
+		cfg.init_tot = get_suffix(token);
 	token = strtok(NULL, ":");
 	if (token == NULL)
 		cfg.init_stop = 0;
@@ -380,7 +392,7 @@ static void get_hostaccess(char *host_access) {
 	if (token == NULL)
 		cfg.host_accesses = 64;
 	else
-		cfg.host_accesses = atoi(token);
+		cfg.host_accesses = get_suffix(token);
 	token = strtok(NULL, ":");
 	if (token == NULL)
 		cfg.host_access_stop = 0;
@@ -543,13 +555,17 @@ int main(int argc, char **argv)
 	fprintf(stdout,"\tbuffer = %p (%s)\n", cfg.buffer,
 		cfg.p2pmem_fd ? "p2pmem" : "system memory");
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
+	rval = cfg.init_tot;
+	rsuf = suffix_si_get(&rval);
 	if (cfg.init_tot)
-		fprintf(stdout,"\tinitializing %zdB of buffer with zeros: alignment "
-			"and size = %dB (STOP = %s)\n", cfg.init_tot, cfg.init_sz,
+		fprintf(stdout,"\tinitializing %.4g%sB of buffer with zeros: alignment "
+			"and size = %dB (STOP = %s)\n", rval, rsuf, cfg.init_sz,
 			cfg.init_stop ? "ON" : "OFF");
+	rval = cfg.host_accesses;
+	rsuf = suffix_si_get(&rval);
 	if (cfg.host_accesses)
-		fprintf(stdout,"\tchecking %d host accesses %s: alignment and size = %dB"
-			" (STOP = %s)\n", cfg.host_accesses, cfg.host_access_sz < 0 ? "(read only) " : "",
+		fprintf(stdout,"\tchecking %.4g%sB host accesses %s: alignment and size = %dB"
+			" (STOP = %s)\n", rval, rsuf, cfg.host_access_sz < 0 ? "(read only) " : "",
 			abs(cfg.host_access_sz), cfg.host_access_stop ? "ON" : "OFF");
 	if (cfg.check)
 		fprintf(stdout,"\tchecking data with seed = %d\n", cfg.seed);
