@@ -41,6 +41,11 @@
 		__typeof__ (b) _b = (b);	\
 		_a < _b ? _a : _b; })
 
+#define max(a, b)				\
+	({ __typeof__ (a) _a = (a);		\
+		__typeof__ (b) _b = (b);	\
+		_a > _b ? _a : _b; })
+
 const char *def_str = "default string";
 const char *desc = "Perform p2pmem and NVMe CMB testing (ver=" VERSION ")";
 
@@ -492,8 +497,11 @@ int main(int argc, char **argv)
 		goto fail_out;
 	}
 
+	if (cfg.init_stop)
+		cfg.size = max(cfg.size, cfg.init_tot);
+
 	if (cfg.init_tot > cfg.size) {
-		fprintf(stderr,"--init total size exceeds mmap()'ed size!\n");
+		fprintf(stderr,"--init init_tot exceeds mmap()'ed size!\n");
 		goto fail_out;
 	}
 
@@ -536,7 +544,7 @@ int main(int argc, char **argv)
 		cfg.p2pmem_fd ? "p2pmem" : "system memory");
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
 	if (cfg.init_tot)
-		fprintf(stdout,"\tinitializing %zdB of buffer with zeros: alignment"
+		fprintf(stdout,"\tinitializing %zdB of buffer with zeros: alignment "
 			"and size = %dB (STOP = %s)\n", cfg.init_tot, cfg.init_sz,
 			cfg.init_stop ? "ON" : "OFF");
 	if (cfg.host_accesses)
