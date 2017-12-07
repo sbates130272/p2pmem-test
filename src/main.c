@@ -57,6 +57,8 @@ static struct {
 	int      duration;
 	unsigned host_accesses;
 	int      host_access_sz;
+	size_t   init_tot;
+	unsigned init_sz;
 	size_t   offset;
 	unsigned overlap;
 	long     page_size;
@@ -78,6 +80,8 @@ static struct {
 	.duration       = -1,
 	.host_accesses  = 0,
 	.host_access_sz = 0,
+	.init_sz        = 0,
+	.init_tot       = 0,
 	.offset         = 0,
 	.overlap        = 0,
 	.seed           = -1,
@@ -100,6 +104,14 @@ static void randfill(void *buf, size_t len)
 		cbuf[i] = rand();
 }
 
+static void zerofill(void *buf, size_t len)
+{
+	uint8_t *cbuf = buf;
+
+	for (int i = 0; i < len; i++)
+		cbuf[i] = 0;
+}
+
 static int written_later(int idx, size_t *offsets, size_t count)
 {
 	for (int i = idx + 1; i < count; i++) {
@@ -116,6 +128,23 @@ static void print_buf(void *buf, size_t len)
 	uint8_t *cbuf = buf;
 	for (int i = len-1; i >= 0; i--)
 		printf("%02X", cbuf[i]);
+}
+
+static int hostinit(void) {
+
+	struct hostaccess {
+		uint8_t entry[cfg.init_sz];
+	} __attribute__ (( packed ));
+
+	struct hostaccess wdata;
+	struct hostaccess *mem = cfg.buffer;
+	size_t count = cfg.init_tot / sizeof(struct hostaccess);
+
+	zerofill(&wdata, sizeof(struct hostaccess));
+	for(size_t i = 0; i < count; i++)
+		mem[i] = wdata;
+
+	return 0;
 }
 
 static int hosttest(void)
@@ -295,6 +324,25 @@ static void *thread_run(void *args)
 	return NULL;
 }
 
+static void get_init(char *init) {
+
+	char *token;
+
+	token = strtok(init, ":");
+	cfg.init_sz = atoi(token);
+
+	if (cfg.init_sz == 0) {
+		cfg.init_tot = 0;
+		return;
+	}
+	token = strtok(NULL, ":");
+	if (token == NULL)
+		cfg.init_tot = 4096;
+	else
+		cfg.init_tot = atoi(token);
+
+}
+
 static void get_hostaccess(char *host_access) {
 
 	char *token;
@@ -318,7 +366,7 @@ int main(int argc, char **argv)
 {
 	double rval, wval, val;
 	const char *rsuf, *wsuf, *suf;
-	char *host_access;
+	char *host_access, *init;
 	size_t total = 0;
 
 	const struct argconfig_options opts[] = {
@@ -347,6 +395,9 @@ int main(int argc, char **argv)
 		{"host_access", 0, "", CFG_STRING, &host_access, required_argument,
 		 "alignment/size and (: sep [optional]) count for host access test "
 		 "(alignment/size: 0 = no test, < 0 = read only test)"},
+		{"init", 0, "", CFG_STRING, &init, required_argument,
+		 "initialize memory buffer with zeros using this size/alignment and "
+		 " (optional : sep) total bytes to init"},
 		{"offset", 'o', "", CFG_LONG_SUFFIX, &cfg.offset, required_argument,
 		 "offset into the p2pmem buffer"},
 		{"overlap", 0, "", CFG_NONE, &cfg.overlap, no_argument,
@@ -366,6 +417,7 @@ int main(int argc, char **argv)
 	cfg.page_size = sysconf(_SC_PAGESIZE);
 	cfg.size = cfg.chunk_size*cfg.chunks;
 	get_hostaccess(host_access);
+	get_init(init);
 
 	if (ioctl(cfg.nvme_read_fd, BLKGETSIZE64, &cfg.rsize)) {
 		perror("ioctl-read");
@@ -415,8 +467,13 @@ int main(int argc, char **argv)
 		goto fail_out;
 	}
 
+	if (cfg.init_tot > cfg.size) {
+		fprintf(stderr,"--init total size exceeds mmap()'ed size!\n");
+		goto fail_out;
+	}
+
 	if (cfg.p2pmem_fd) {
-		cfg.buffer = mmap(NULL, cfg.chunk_size*cfg.threads, PROT_READ | PROT_WRITE, MAP_SHARED,
+		cfg.buffer = mmap(NULL, cfg.size, PROT_READ | PROT_WRITE, MAP_SHARED,
 				  cfg.p2pmem_fd, cfg.offset);
 		if (cfg.buffer == MAP_FAILED) {
 			perror("mmap");
@@ -453,6 +510,9 @@ int main(int argc, char **argv)
 	fprintf(stdout,"\tbuffer = %p (%s)\n", cfg.buffer,
 		cfg.p2pmem_fd ? "p2pmem" : "system memory");
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
+	if (cfg.init_tot)
+		fprintf(stdout,"\tinitializing %zdB of buffer with zeros: alignment"
+			"and size = %dB\n", cfg.init_tot, cfg.init_sz);
 	if (cfg.host_accesses)
 		fprintf(stdout,"\tchecking %d host accesses %s: alignment and size = %dB\n",
 			cfg.host_accesses, cfg.host_access_sz < 0 ? "(read only) " : "",
@@ -460,6 +520,12 @@ int main(int argc, char **argv)
 	if (cfg.check)
 		fprintf(stdout,"\tchecking data with seed = %d\n", cfg.seed);
 
+	if (cfg.init_tot) {
+		if (hostinit()) {
+			perror("hostinit");
+			goto free_fail_out;
+		}
+	}
 	if (cfg.host_accesses) {
 		if (hosttest()) {
 			perror("hosttest");
