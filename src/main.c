@@ -41,6 +41,7 @@
 		__typeof__ (b) _b = (b);	\
 		_a < _b ? _a : _b; })
 
+const char *def_str = "default string";
 const char *desc = "Perform p2pmem and NVMe CMB testing (ver=" VERSION ")";
 
 static struct {
@@ -56,8 +57,10 @@ static struct {
 	size_t   chunks;
 	int      duration;
 	unsigned host_accesses;
+	unsigned host_access_stop;
 	int      host_access_sz;
 	size_t   init_tot;
+	unsigned init_stop;
 	unsigned init_sz;
 	size_t   offset;
 	unsigned overlap;
@@ -80,8 +83,10 @@ static struct {
 	.duration       = -1,
 	.host_accesses  = 0,
 	.host_access_sz = 0,
+	.host_access_stop = 0,
 	.init_sz        = 0,
 	.init_tot       = 0,
+	.init_stop      = 0,
 	.offset         = 0,
 	.overlap        = 0,
 	.seed           = -1,
@@ -328,9 +333,13 @@ static void get_init(char *init) {
 
 	char *token;
 
-	token = strtok(init, ":");
-	cfg.init_sz = atoi(token);
+	if (init == def_str)
+		return;
 
+	token = strtok(init, ":");
+	if (token == NULL)
+		return;
+	cfg.init_sz = atoi(token);
 	if (cfg.init_sz == 0) {
 		cfg.init_tot = 0;
 		return;
@@ -340,16 +349,24 @@ static void get_init(char *init) {
 		cfg.init_tot = 4096;
 	else
 		cfg.init_tot = atoi(token);
-
+	token = strtok(NULL, ":");
+	if (token == NULL)
+		cfg.init_stop = 0;
+	else
+		cfg.init_stop = 1;
 }
 
 static void get_hostaccess(char *host_access) {
 
 	char *token;
 
-	token = strtok(host_access, ":");
-	cfg.host_access_sz = atoi(token);
+	if (host_access == def_str)
+		return;
 
+	token = strtok(host_access, ":");
+	if (token == NULL)
+		return;
+	cfg.host_access_sz = atoi(token);
 	if (cfg.host_access_sz == 0) {
 		cfg.host_accesses = 0;
 		return;
@@ -359,6 +376,11 @@ static void get_hostaccess(char *host_access) {
 		cfg.host_accesses = 64;
 	else
 		cfg.host_accesses = atoi(token);
+	token = strtok(NULL, ":");
+	if (token == NULL)
+		cfg.host_access_stop = 0;
+	else
+		cfg.host_access_stop = 1;
 
 }
 
@@ -368,6 +390,9 @@ int main(int argc, char **argv)
 	const char *rsuf, *wsuf, *suf;
 	char *host_access, *init;
 	size_t total = 0;
+
+	host_access = (char *)def_str;
+	init = (char*)def_str;
 
 	const struct argconfig_options opts[] = {
 		{"nvme-read", .cfg_type=CFG_FD_RDWR_DIRECT_NC,
@@ -512,11 +537,12 @@ int main(int argc, char **argv)
 	fprintf(stdout,"\tPAGE_SIZE = %ldB\n", cfg.page_size);
 	if (cfg.init_tot)
 		fprintf(stdout,"\tinitializing %zdB of buffer with zeros: alignment"
-			"and size = %dB\n", cfg.init_tot, cfg.init_sz);
+			"and size = %dB (STOP = %s)\n", cfg.init_tot, cfg.init_sz,
+			cfg.init_stop ? "ON" : "OFF");
 	if (cfg.host_accesses)
-		fprintf(stdout,"\tchecking %d host accesses %s: alignment and size = %dB\n",
-			cfg.host_accesses, cfg.host_access_sz < 0 ? "(read only) " : "",
-			abs(cfg.host_access_sz));
+		fprintf(stdout,"\tchecking %d host accesses %s: alignment and size = %dB"
+			" (STOP = %s)\n", cfg.host_accesses, cfg.host_access_sz < 0 ? "(read only) " : "",
+			abs(cfg.host_access_sz), cfg.host_access_stop ? "ON" : "OFF");
 	if (cfg.check)
 		fprintf(stdout,"\tchecking data with seed = %d\n", cfg.seed);
 
@@ -525,11 +551,19 @@ int main(int argc, char **argv)
 			perror("hostinit");
 			goto free_fail_out;
 		}
+		if (cfg.init_stop) {
+			fprintf(stdout, "stopping at hostinit()\n");
+			goto out;
+		}
 	}
 	if (cfg.host_accesses) {
 		if (hosttest()) {
 			perror("hosttest");
 			goto free_fail_out;
+		}
+		if (cfg.host_access_stop) {
+			fprintf(stdout, "stopping at hosttest()\n");
+			goto out;
 		}
 		srand(cfg.seed);
 	}
@@ -604,6 +638,7 @@ int main(int argc, char **argv)
 
 free_free_fail_out:
 	free(tinfo);
+out:
 free_fail_out:
 	if (cfg.p2pmem_fd)
 		munmap(cfg.buffer, cfg.chunk_size);
