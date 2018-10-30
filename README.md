@@ -71,8 +71,7 @@ second option as a bounce buffer for obvious reasons.
 ## Examples
 
 Some simple examples:
-
-./p2pmem-test /dev/nvme0n1 /dev/nvme1n1 /dev/p2pmem0 -s 1 -4k --check
+./p2pmem-test /dev/nvme0n1 /dev/nvme1n1 /dev/p2pmem0 -c 1 -s 4k --check
 
 Copy one 4KB chunk from /dev/nvme0n1 to /dev/nvme0n1 via the memory
 exposed by /dev/p2pmem0. Perform a check on the data (i.e. write know
