@@ -1,4 +1,4 @@
-# p2pmem-test
+# p2pmem-test: A tool for userspace testing of the p2pdma kernel framework
 
 Welcome to p2pmem-test, a utility for testing PCI Peer-2-Peer (P2P)
 communication between p2pmem and NVMe devices. This utility becomes
@@ -9,55 +9,47 @@ features.
 ## Contributing
 
 p2pmem-test is an active project. We will happily consider Pull
-Requests (PRs) submitted against the offical repo at
-www.github.com/sbates130272/p2pmem-test.git.
+Requests (PRs) submitted against the [official repo][1].
 
 ## Getting Started
+1. In order to run any P2P traffic, you'll need to have a (Linux based) OS
+that supports [p2pdma][2]. This framework is available in all Linux kernels 4.20
+or newer, however it is NOT compiled in by default. You will almost certainly
+have to compile a kernel from source and install that. The instructions on how
+to do this are beyond the scope of this document but there is a tool that can
+help [here][3].
 
-0. Make sure the (Linux based) OS supports p2pmem [1]. p2pmem is not
-upstream (yet) so you will need to grab it and build you own kernel.
+1. You'll need install the separate [p2pmem-pci][5] module installed to expose
+the device to userspace. Once installed, you should see the device exposed as
+a /dev/p2pmemX.
 
-0. Make sure your system has at least one p2pmem capable
-device. Examples include an Eideticom IOMEM device, a Microsemi NVRAM 
+1. Make sure your system has at least one p2pdma capable
+device. Examples include an Eideticom IOMEM device, a Microsemi NVRAM
 card or a CMB enabled NVMe SSD that supports the WDS and RDS features
-(e.g. The Everspin NVNitro card or the Eideticom NoLoad
-HDK). Basically this is any PCI EP capable of exposing a BAR with a
-driver that ties into the p2pmem framework.
+(e.g. The Everspin NVNitro card or the [Eideticom NoLoad<sup>TM</sup> device][4]).
+Basically this is any PCI EP capable of exposing a BAR with a driver that ties
+into the p2pdma framework.
 
-0. In addition to the p2pmem capable device you need at least one
+1. In addition to the p2pmem capable device you need at least one
 other NVMe SSD. This does not have to be CMB enabled (but it is OK if
-it does support CMB), any standard NVMe SSD will do. Perferably you
-will have more than one NVMe SSD but its not a requirement.
+it does support CMB), any standard NVMe SSD will do. Preferably you
+will have more than one NVMe SSD but its not a requirement. Ideally place
+the two (or more) devices noted in the two previous points behind a PCIe
+switch (for example the Microsemi Switchtec or a PLX switch). If you do not
+have a switch you can connect both devices to the Root Complex (RC) on the CPU
+but two things *may* happen:
+   * Performance may drop. Many RCs are inefficient at routing P2P traffic.
+   * It might not work at all. Many RCs block P2P traffic.
 
-0. Ideally place the two (or more) devices noted in the two previous
-points behind a PCIe switch (for example the Microsemi Switchtec or a
-PLX switch). If you do not have a switch you can connect both devices
-to the Root Complex (RC) on the CPU but two things *may* happen:
-  0. Performance may drop. Many RCs are ineffecient at routing P2P
-  traffic.
-  0. It might not work at all. Many RCs block P2P traffic.
+1. You'll almost certainly want to disable the IOMMU in your system
+via either the BIOS or the kernel.
 
-0. You almost certainly want to disable the IOMMU in your system via
-both the BIOS and the kernel. Even with these steps some BIOS still
-activate PCIe Access Control Services (ACS) and part of ACS includes
-TLP redirection which kills p2pmem. If this is happening on your setup
-you can try and disable ACS or use this patch [2] to get the kernel to
-turn it off. Use with care as it does bad things to IOVA sharing.
+1. You may also need to disable the PCIe Access Control Services (ACS)
+by either the BIOS and/or the kernel because TLP redirection (activated as part
+of ACS) kills P2P traffic.
 
-0. Boot your system. Assuming your p2pmem driver (which might be the
-NVMe driver in your case) bound to the PCI EP exposing the p2pmem you
-should see some lines in dmesg regarding p2pmem. You should also see a
-device for each p2pmem in your system (e.g. /dev/p2pmemN where N is a
-numnber). If you don't check all the steps above. Note there is also a
-debugsfs entry for each p2pmem device in <debugfs mount
-point>/p2pmem/p2pmemN.
-
-0. Compile p2pmem-test by runnning make. Note p2pmem-test using
-libargconfig as a submodule so make sure you have run submodule init
-to pull that code.
-
-0. You can now run p2pmem-test. Use p2pmem-test -h to get a list of
-options.
+1. Finally, p2pmem-test requires the libargconfig submodule. You'll need to
+either clone recursively or via `git submodule update --init`.
 
 ## NVMe CMBs vs PCI Bounce Buffering
 
@@ -78,7 +70,8 @@ exposed by /dev/p2pmem0. Perform a check on the data (i.e. write know
 data to /dev/nvme0n1 and validate that by reading /dev/nvme1n1 after
 the p2pmem based transfer).
 
-## References
-
-[1] https://github.com/sbates130272/linux-p2pmem
-[2] https://lkml.org/lkml/2017/10/26/678
+[1]: www.github.com/sbates130272/p2pmem-test.git
+[2]: https://www.kernel.org/doc/html/latest/driver-api/pci/p2pdma.html
+[3]: https://github.com/sbates130272/kernel-tools
+[4]: https://www.eideticom.com/products.html
+[5]: https://github.com/Eideticom/p2pmem-pci
