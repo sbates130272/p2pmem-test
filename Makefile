@@ -28,6 +28,7 @@ LDLIBS+= -lpthread
 EXE=p2pmem-test
 SRCS=$(wildcard src/*.c)
 OBJS=$(addprefix $(OBJDIR)/, $(patsubst %.c,%.o, $(SRCS)))
+PREFIX=/usr/local/bin/
 
 ifneq ($(V), 1)
 Q=@
@@ -37,6 +38,9 @@ NQ=:
 endif
 
 compile: $(EXE)
+
+install: $(EXE)
+	install $(EXE) $(PREFIX)
 
 clean:
 	@$(NQ) echo "  CLEAN  $(EXE)"
@@ -63,6 +67,6 @@ $(EXE): $(OBJS) $(LIBARGCONFIGDIR)/libargconfig.a
 	@$(NQ) echo "  LD     $@"
 	$(Q)$(LINK.o) $^ $(LDLIBS) -o $@
 
-.PHONY: clean compile FORCE
+.PHONY: clean compile install FORCE
 
 -include $(patsubst %.o,%.d,$(OBJS))
