@@ -6,6 +6,14 @@ very interesting as NVMe devices become p2pmem devices via the
 Controller Memory Buffer (CMB) and Persistent Memory Region (PMR)
 features.
 
+## Installing
+Should be as simple as:
+```
+git submodule update --init
+make
+sudo make install
+```
+
 ## Contributing
 
 p2pmem-test is an active project. We will happily consider Pull
